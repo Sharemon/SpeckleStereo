@@ -26,7 +26,7 @@ void convert_disparity_map_to_point_cloud(const cv::Mat& disp, std::vector<cv::V
         for (int x = 0; x < width; x++)
         {
             float d = disp.at<float>(y, x);
-            if (d <= 0)
+            if (d < 20) // set a distance max limit of 3m 
                 continue;
 
             float dw = d * w;
@@ -146,7 +146,7 @@ int main(int argc, char const *argv[])
 
         // 6.2 save point cloud
         std::vector<cv::Vec6f> point_cloud_with_texture;
-        convert_disparity_map_to_point_cloud(disp, point_cloud_with_texture, Q, left);
+        convert_disparity_map_to_point_cloud(disp, point_cloud_with_texture, Q, left_rectified);
 
         std::ofstream point_cloud_file(output_path + "/point_cloud.txt");
         for (auto point : point_cloud_with_texture)

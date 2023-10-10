@@ -107,6 +107,8 @@ namespace SpeckleStereo
         }
     }
 
+    
+
     void median_filter(float *disparity_in, float *disparity_out, int width, int height, int kernel_size)
     {
         std::vector<float> win;

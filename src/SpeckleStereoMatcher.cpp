@@ -154,20 +154,6 @@ void SpeckleStereoMatcher::match(const cv::Mat& left, const cv::Mat& right, cv::
     disp_s16.convertTo(result, CV_32FC1, 1.0 / 16);
 #else
     // 1. calculate the cost volume
-    // cv::Mat left2 = cv::Mat(10, 10, CV_8UC1);
-    // cv::Mat right2 = cv::Mat(10, 10, CV_8UC1);
-
-    // for (int r = 0; r < 10; r++)
-    // {
-    //     for (int c=0; c < 10; c++)
-    //     {
-    //         left2.at<uchar>(r,c) = c;
-    //         right2.at<uchar>(r,c) = c + 2;
-    //     }
-    // }
-
-    // _width = 10;
-    // _height = 10;
     ZNCC_calc(left, right, _cost_volumn);
     std::cout << "ZNCC calculation done" << std::endl;
 
