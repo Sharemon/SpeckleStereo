@@ -21,6 +21,8 @@ namespace SpeckleStereo
         int _height;
 
         float *_cost_volumn = NULL;
+        float *_cost_volumn_aggr = NULL;
+        float *_scaneline_buffer = NULL;
         float *_cost_volumn_r = NULL;
         int *_disparity_int = NULL;
         int *_disparity_int_r = NULL;

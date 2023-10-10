@@ -12,38 +12,37 @@
 
 namespace SpeckleStereo
 {
-    inline int find_max_in_array(const float *arr, int len)
+    inline int find_min_in_array(const float *arr, int len)
     {
-        int max_idx = 0;
-        float max = arr[0];
+        int min_idx = 0;
+        float min = arr[0];
         for (int i = 1; i < len; i++)
         {
-            if (arr[i] > max)
+            if (arr[i] < min)
             {
-                max = arr[i];
-                max_idx = i;
+                min = arr[i];
+                min_idx = i;
             }
         }
 
-        return max_idx;
+        return min_idx;
     }
 
-
     void WTA(const float *cost_map, int *disparity,
-                  int width, int height, int max_disparity)
+             int width, int height, int max_disparity)
     {
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
             {
-                disparity[x + y * width] = find_max_in_array(cost_map + (x + y * width) * max_disparity, max_disparity);
+                disparity[x + y * width] = find_min_in_array(cost_map + (x + y * width) * max_disparity, max_disparity);
             }
         }
     }
 
     void LR_check(const float *cost_map, int *disparity,
-                       float *cost_map_r, int *disparity_r,
-                       int width, int height, int max_disparity)
+                  float *cost_map_r, int *disparity_r,
+                  int width, int height, int max_disparity)
     {
 
         // 右图代价空间构建
@@ -81,7 +80,7 @@ namespace SpeckleStereo
     }
 
     void refine(const float *cost_map, const int *disparity, float *disparity_float,
-                     int width, int height, int max_disparity)
+                int width, int height, int max_disparity)
     {
         for (int y = 0; y < height; y++)
         {
@@ -107,8 +106,6 @@ namespace SpeckleStereo
         }
     }
 
-    
-
     void median_filter(float *disparity_in, float *disparity_out, int width, int height, int kernel_size)
     {
         std::vector<float> win;
@@ -130,6 +127,255 @@ namespace SpeckleStereo
                 std::sort(win.begin(), win.end());
                 disparity_out[x + y * width] = win[win.size() / 2];
             }
+        }
+    }
+
+    void cost_aggregation_left2right(const float *cost_map, const uchar *img,
+                                     int width, int height, int max_disparity,
+                                     float *cost_aggregated, float P1, float P2)
+    {
+        std::vector<float> cost_last(max_disparity);
+
+        for (int y = 0; y < height; y++)
+        {
+            // 第一列不需聚合
+            memcpy(cost_aggregated, cost_map, max_disparity * sizeof(float));
+            memcpy(&cost_last[0], cost_aggregated, max_disparity * sizeof(float));
+
+            float cost_min_last = *std::min_element(cost_last.begin(), cost_last.end());
+
+            uchar gray_last = (*img);
+
+            cost_map += max_disparity;
+            cost_aggregated += max_disparity;
+            img += 1;
+
+            for (int x = 1; x < width; x++)
+            {
+                uchar gray = (*img);
+                float cost_min_cur = UINT8_MAX;
+                for (int d = 0; d < max_disparity; d++)
+                {
+                    float l0 = cost_map[d];
+                    float l1 = cost_last[d];
+                    float l2 = (d == 0 ? UINT8_MAX : cost_last[d - 1]) + P1;
+                    float l3 = (d == max_disparity - 1 ? UINT8_MAX : cost_last[d + 1]) + P1;
+                    float l4 = cost_min_last + std::max(P1, P2 / (abs(gray - gray_last) + 1));
+
+                    cost_aggregated[d] = l0 + std::min(std::min(l1, l2), std::min(l3, l4)) - cost_min_last;
+
+                    cost_min_cur = std::min(cost_aggregated[d], cost_min_cur);
+                }
+
+                memcpy(&cost_last[0], cost_aggregated, max_disparity * sizeof(float));
+                cost_min_last = cost_min_cur;
+
+                gray_last = gray;
+
+                cost_map += max_disparity;
+                cost_aggregated += max_disparity;
+                img += 1;
+            }
+        }
+    }
+
+    void cost_aggregation_right2left(const float *cost_map, const uchar *img,
+                                     int width, int height, int max_disparity,
+                                     float *cost_aggregated, float P1, float P2)
+    {
+        std::vector<float> cost_last(max_disparity);
+
+        cost_map += (width * height - 1) * max_disparity;
+        cost_aggregated += (width * height - 1) * max_disparity;
+        img += (width * height - 1);
+
+        for (int y = height - 1; y >= 0; y--)
+        {
+            // 第一列不需聚合
+            memcpy(cost_aggregated, cost_map, max_disparity * sizeof(float));
+            memcpy(cost_last.data(), cost_aggregated, max_disparity * sizeof(float));
+
+            float cost_min_last = *std::min_element(cost_last.begin(), cost_last.end());
+
+            uchar gray_last = (*img);
+
+            cost_map -= max_disparity;
+            cost_aggregated -= max_disparity;
+            img -= 1;
+
+            for (int x = width - 2; x >= 0; x--)
+            {
+                uchar gray = (*img);
+                float cost_min_cur = UINT8_MAX;
+                for (int d = 0; d < max_disparity; d++)
+                {
+                    float l0 = cost_map[d];
+                    float l1 = cost_last[d];
+                    float l2 = (d == 0 ? UINT8_MAX : cost_last[d - 1]) + P1;
+                    float l3 = (d == max_disparity - 1 ? UINT8_MAX : cost_last[d + 1]) + P1;
+                    float l4 = cost_min_last + std::max(P1, P2 / (abs(gray - gray_last) + 1));
+
+                    cost_aggregated[d] = l0 + std::min(std::min(l1, l2), std::min(l3, l4)) - cost_min_last;
+
+                    cost_min_cur = std::min(cost_aggregated[d], cost_min_cur);
+                }
+
+                memcpy(cost_last.data(), cost_aggregated, max_disparity * sizeof(float));
+                cost_min_last = cost_min_cur;
+
+                gray_last = gray;
+
+                cost_map -= max_disparity;
+                cost_aggregated -= max_disparity;
+                img -= 1;
+            }
+        }
+    }
+
+    void cost_aggregation_up2down(const float *cost_map, const uchar *img,
+                                  int width, int height, int max_disparity,
+                                  float *cost_aggregated, float P1, float P2)
+    {
+        std::vector<float> cost_last(max_disparity);
+
+        const float *cost_org = cost_map;
+        float *cost_aggre_org = cost_aggregated;
+        const uchar *img_data_org = img;
+
+        for (int x = 0; x < width; x++)
+        {
+            // 赋值
+            cost_map = &cost_org[x * max_disparity];
+            cost_aggregated = &cost_aggre_org[x * max_disparity];
+            img = &img_data_org[x];
+
+            // 第一行不需聚合
+            memcpy(cost_aggregated, cost_map, max_disparity * sizeof(float));
+            memcpy(cost_last.data(), cost_aggregated, max_disparity * sizeof(float));
+
+            float cost_min_last = *std::min_element(cost_last.begin(), cost_last.end());
+
+            uchar gray_last = (*img);
+
+            cost_map += width * max_disparity;
+            cost_aggregated += width * max_disparity;
+            img += width;
+
+            for (int y = 1; y < height; y++)
+            {
+                uchar gray = (*img);
+                float cost_min_cur = UINT8_MAX;
+                for (int d = 0; d < max_disparity; d++)
+                {
+                    float l0 = cost_map[d];
+                    float l1 = cost_last[d];
+                    float l2 = (d == 0 ? UINT8_MAX : cost_last[d - 1]) + P1;
+                    float l3 = (d == max_disparity - 1 ? UINT8_MAX : cost_last[d + 1]) + P1;
+                    float l4 = cost_min_last + std::max(P1, P2 / (abs(gray - gray_last) + 1));
+
+                    cost_aggregated[d] = l0 + std::min(std::min(l1, l2), std::min(l3, l4)) - cost_min_last;
+
+                    cost_min_cur = std::min(cost_aggregated[d], cost_min_cur);
+                }
+
+                memcpy(cost_last.data(), cost_aggregated, max_disparity * sizeof(float));
+                cost_min_last = cost_min_cur;
+
+                gray_last = gray;
+
+                cost_map += width * max_disparity;
+                cost_aggregated += width * max_disparity;
+                img += width;
+            }
+        }
+    }
+
+    void cost_aggregation_down2up(const float *cost_map, const uchar *img,
+                                  int width, int height, int max_disparity,
+                                  float *cost_aggregated, float P1, float P2)
+    {
+        std::vector<float> cost_last(max_disparity);
+
+        const float *cost_org = cost_map;
+        float *cost_aggre_org = cost_aggregated;
+        const uchar *img_data_org = img;
+
+        for (int x = width - 1; x >= 0; x--)
+        {
+            // 赋值
+            cost_map = &cost_org[((height - 1) * width + x) * max_disparity];
+            cost_aggregated = &cost_aggre_org[((height - 1) * width + x) * max_disparity];
+            img = &img_data_org[((height - 1) * width + x)];
+
+            // 第一行不需聚合
+            memcpy(cost_aggregated, cost_map, max_disparity * sizeof(float));
+            memcpy(cost_last.data(), cost_aggregated, max_disparity * sizeof(float));
+
+            float cost_min_last = *std::min_element(cost_last.begin(), cost_last.end());
+
+            uchar gray_last = (*img);
+
+            cost_map -= width * max_disparity;
+            cost_aggregated -= width * max_disparity;
+            img -= width;
+
+            for (int y = height - 2; y >= 0; y--)
+            {
+                uchar gray = (*img);
+                float cost_min_cur = UINT8_MAX;
+                for (int d = 0; d < max_disparity; d++)
+                {
+                    float l0 = cost_map[d];
+                    float l1 = cost_last[d];
+                    float l2 = (d == 0 ? UINT8_MAX : cost_last[d - 1]) + P1;
+                    float l3 = (d == max_disparity - 1 ? UINT8_MAX : cost_last[d + 1]) + P1;
+                    float l4 = cost_min_last + std::max(P1, P2 / (abs(gray - gray_last) + 1));
+
+                    cost_aggregated[d] = l0 + std::min(std::min(l1, l2), std::min(l3, l4)) - cost_min_last;
+
+                    cost_min_cur = std::min(cost_aggregated[d], cost_min_cur);
+                }
+
+                memcpy(cost_last.data(), cost_aggregated, max_disparity * sizeof(float));
+                cost_min_last = cost_min_cur;
+
+                gray_last = gray;
+
+                cost_map -= width * max_disparity;
+                cost_aggregated -= width * max_disparity;
+                img -= width;
+            }
+        }
+    }
+
+    void cost_aggregation(const float *cost_map, const uchar *img,
+                          int width, int height, int max_disparity,
+                          float *cost_aggregated, float P1, float P2,
+                          float *cost_scanline_buffer)
+    {
+        const int scanline_path = 4;
+        float *cost_scanline[scanline_path];
+
+        for (int i = 0; i < scanline_path; i++)
+        {
+            cost_scanline[i] = cost_scanline_buffer + i * width * height * max_disparity;
+        }
+
+        cost_aggregation_left2right(cost_map, img, width, height, max_disparity, cost_scanline[0], P1, P2);
+        cost_aggregation_right2left(cost_map, img, width, height, max_disparity, cost_scanline[1], P1, P2);
+        cost_aggregation_up2down(cost_map, img, width, height, max_disparity, cost_scanline[2], P1, P2);
+        cost_aggregation_down2up(cost_map, img, width, height, max_disparity, cost_scanline[3], P1, P2);
+
+        for (int i = 0; i < width * height * max_disparity; i++)
+        {
+            float cost_i = 0;
+
+            cost_i += cost_scanline[0][i] +
+                      cost_scanline[1][i] +
+                      cost_scanline[2][i] +
+                      cost_scanline[3][i];
+
+            cost_aggregated[i] = (cost_i / scanline_path);
         }
     }
 }

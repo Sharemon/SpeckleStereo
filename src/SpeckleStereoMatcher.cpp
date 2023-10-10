@@ -97,7 +97,7 @@ void SpeckleStereoMatcher::ZNCC_calc(const cv::Mat &left, const cv::Mat &right, 
                     zncc = (N * SIJ - SI * SJ) / (std::sqrt(left_xcorr * right_xcorr));
 #endif
 
-                cost_volume[d + (x + y * _width) * _max_disparity] = zncc;
+                cost_volume[d + (x + y * _width) * _max_disparity] = 1 - zncc;  // 1-zncc make easier for aggregation
                 //std::cout << x << " " << y << " " << d << " " << zncc << std::endl;
             }
         }
@@ -108,6 +108,8 @@ SpeckleStereoMatcher::SpeckleStereoMatcher(int kernel_size, int width, int heigh
     _kernel_size(kernel_size), _width(width), _height(height)
 {
     _cost_volumn = (float *)malloc(_width * _height * _max_disparity * sizeof(float));
+    _cost_volumn_aggr = (float *)malloc(_width * _height * _max_disparity * sizeof(float));
+    _scaneline_buffer = (float *)malloc(_width * _height * _max_disparity * sizeof(float) * 4);
     _cost_volumn_r = (float *)malloc(_width * _height * _max_disparity * sizeof(float));
     _disparity_int = (int *)malloc(_width * _height * sizeof(int));
     _disparity_int_r = (int *)malloc(_width * _height * sizeof(int));
@@ -119,6 +121,8 @@ SpeckleStereoMatcher::SpeckleStereoMatcher(int kernel_size, int width, int heigh
     }
 
     memset(_cost_volumn, 0, _width * _height * _max_disparity * sizeof(float));
+    memset(_cost_volumn_aggr, 0, _width * _height * _max_disparity * sizeof(float));
+    memset(_scaneline_buffer, 0, _width * _height * _max_disparity * sizeof(float));
     memset(_cost_volumn_r, 0, _width * _height * _max_disparity * sizeof(float));
     memset(_disparity_int, 0, _width * _height * sizeof(int));
     memset(_disparity_int_r, 0, _width * _height * sizeof(int));
@@ -129,6 +133,12 @@ SpeckleStereoMatcher::~SpeckleStereoMatcher()
 {
     if (_cost_volumn != NULL)
         free(_cost_volumn);
+
+    if (_cost_volumn_aggr != NULL)
+        free(_cost_volumn_aggr);
+
+    if (_scaneline_buffer != NULL)
+        free(_scaneline_buffer);
 
     if (_cost_volumn_r != NULL)
         free(_cost_volumn_r);
@@ -158,6 +168,7 @@ void SpeckleStereoMatcher::match(const cv::Mat& left, const cv::Mat& right, cv::
     std::cout << "ZNCC calculation done" << std::endl;
 
     // 2. cost agrregation
+    //cost_aggregation(_cost_volumn, left.data, _width, _height, _max_disparity, _cost_volumn_aggr, 0.1, 1, _scaneline_buffer);
 
     // 3. wta
     WTA(_cost_volumn, _disparity_int, _width, _height, _max_disparity);
@@ -173,7 +184,7 @@ void SpeckleStereoMatcher::match(const cv::Mat& left, const cv::Mat& right, cv::
 
     // 6. median filter
     result = cv::Mat::zeros(cv::Size(_width, _height), CV_32FC1);
-    median_filter(_disparity_float, (float *)result.data, _width, _height, 5);
+    median_filter(_disparity_float, (float *)result.data, _width, _height, _kernel_size);
     std::cout << "medianBlur" << std::endl;
 #else
     result = cv::Mat::zeros(cv::Size(_width, _height), CV_32FC1);
