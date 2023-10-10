@@ -15,9 +15,21 @@ namespace SpeckleStereo
     class SpeckleStereoMatcher
     {
     private:
-        /* data */
+        const int _max_disparity =160;
+        int _kernel_size;
+        int _width;
+        int _height;
+
+        float *_cost_volumn = NULL;
+        float *_cost_volumn_r = NULL;
+        int *_disparity_int = NULL;
+        int *_disparity_int_r = NULL;
+        float *_disparity_float = NULL;
+
+        void ZNCC_calc(const cv::Mat &left, const cv::Mat &right, float *cost_volume);
+
     public:
-        SpeckleStereoMatcher(/* args */);
+        SpeckleStereoMatcher(int kernel_size, int width, int height);
         ~SpeckleStereoMatcher();
 
         void match(const cv::Mat& left, const cv::Mat& right, cv::Mat& result);

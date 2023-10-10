@@ -9,15 +9,15 @@
 #include <fstream>
 #include "../src/SpeckleStereoMatcher.hpp"
 
-void convert_disparity_map_to_point_cloud(const cv::Mat& disp, std::vector<cv::Vec6f> point_cloud_with_texture, const cv::Mat& Q, const cv::Mat& texture)
+void convert_disparity_map_to_point_cloud(const cv::Mat& disp, std::vector<cv::Vec6f>& point_cloud_with_texture, const cv::Mat& Q, const cv::Mat& texture)
 {
     point_cloud_with_texture.clear();
 
     int width = disp.cols;
     int height = disp.rows;
 
-    double cx = Q.at<double>(0, 3);
-    double cy = Q.at<double>(1, 3);
+    double cx = -Q.at<double>(0, 3);
+    double cy = -Q.at<double>(1, 3);
     double f  = Q.at<double>(2, 3);
     double w  = Q.at<double>(3, 2);
 
@@ -26,7 +26,7 @@ void convert_disparity_map_to_point_cloud(const cv::Mat& disp, std::vector<cv::V
         for (int x = 0; x < width; x++)
         {
             float d = disp.at<float>(y, x);
-            if (d == 0)
+            if (d <= 0)
                 continue;
 
             float dw = d * w;
@@ -54,6 +54,8 @@ void convert_disparity_map_to_point_cloud(const cv::Mat& disp, std::vector<cv::V
                 xyz_rgb[4] = rgb[1];
                 xyz_rgb[5] = rgb[2];
             }
+
+            point_cloud_with_texture.push_back(xyz_rgb);
         }
     }
 }
@@ -111,11 +113,24 @@ int main(int argc, char const *argv[])
     cv::remap(left, left_rectified, left_mapx, left_mapy, cv::INTER_LINEAR);
     cv::remap(right, right_rectified, right_mapx, right_mapy, cv::INTER_LINEAR);
 
+    cv::imwrite("left.png", left_rectified);
+    cv::imwrite("right.png", right_rectified);
+
+    cv::Mat merge;
+    cv::hconcat(left_rectified, right_rectified, merge);
+    cv::imwrite("merge.png", merge);
+
+    cv::resize(left_rectified, left_rectified, left_rectified.size());
+    cv::resize(right_rectified, right_rectified, right_rectified.size());
+
     // 5. stereo match
-    SpeckleStereo::SpeckleStereoMatcher matcher;
+    SpeckleStereo::SpeckleStereoMatcher matcher(11, left_rectified.cols, left_rectified.rows);
 
     cv::Mat disp;
+    auto t0 = std::chrono::high_resolution_clock::now();
     matcher.match(left_rectified, right_rectified, disp);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    std::cout << "time used: " <<  std::chrono::duration_cast<std::chrono::milliseconds>(t1-t0).count() << "ms" << std::endl;
 
     // 6. save result
     if (!disp.empty())
@@ -124,6 +139,10 @@ int main(int argc, char const *argv[])
         FILE *fp = fopen((output_path + "/disparity_map.raw").c_str(), "wb");
         fwrite(disp.data, disp.cols * disp.rows * sizeof(float), 1, fp);
         fclose(fp);
+
+        cv::Mat disp_u8;
+        disp.convertTo(disp_u8, CV_8UC1, 1.0);
+        cv::imwrite("disp.png", disp_u8);
 
         // 6.2 save point cloud
         std::vector<cv::Vec6f> point_cloud_with_texture;

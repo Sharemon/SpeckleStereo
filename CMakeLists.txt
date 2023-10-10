@@ -11,9 +11,10 @@ enable_testing()
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
+find_package(OpenMP REQUIRED)
 
 file(GLOB_RECURSE cpp_srcs src/*.cpp)
 file(GLOB_RECURSE cpp_apps app/*.cpp)
 
 add_executable(SpeckleStereo ${cpp_srcs} ${cpp_apps})
-target_link_libraries(SpeckleStereo ${OpenCV_LIBS})
+target_link_libraries(SpeckleStereo ${OpenCV_LIBS} OpenMP::OpenMP_CXX)
