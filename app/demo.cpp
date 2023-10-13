@@ -278,7 +278,7 @@ void test_speckle_match_for_triple_image(int argc, char const *argv[])
 
 int main(int argc, char const *argv[])
 {
-#if 0
+#if 1
     test_speckle_match_for_single_image(argc, argv);
 #else
     test_speckle_match_for_triple_image(argc, argv);

@@ -27,6 +27,83 @@ inline double calc_xcorr(const cv::Mat &left, const cv::Mat &right, int x_start,
     return ret;
 }
 
+void SpeckleStereoMatcher::ZNSSD_calc(const cv::Mat &left, const cv::Mat &right, float *cost_volume)
+{
+    cv::Mat integral_sum_left, integral_sqsum_left, integral_sum_right, integral_sqsum_right;
+    cv::integral(left, integral_sum_left, integral_sqsum_left, CV_64F, CV_64F);
+    cv::integral(right, integral_sum_right, integral_sqsum_right, CV_64F, CV_64F);
+
+#pragma omp parallel for
+    for (int sub_threads = 0; sub_threads < 12; sub_threads++)
+    {
+        for (int y_sub = 0; y_sub < _height / 12; y_sub++)
+        {
+            int y = y_sub + sub_threads * _height / 12;
+
+            for (int x = 0; x < _width; x++)
+            {
+                for (int d = 0; d < _max_disparity; d++)
+                {
+                    int x_start = std::max(x - _kernel_size / 2, 0);
+                    int x_end = std::min(x + _kernel_size / 2, _width - 1);
+
+                    int y_start = std::max(y - _kernel_size / 2, 0);
+                    int y_end = std::min(y + _kernel_size / 2, _height - 1);
+
+                    if (x_start - d < 0)
+                    {
+                        cost_volume[d + (x + y * _width) * _max_disparity] = 0;
+                        continue;
+                    }
+
+#if 0
+                cv::Mat left_roi, right_roi;
+                left(cv::Rect(cv::Point(x_start, y_start), cv::Point(x_end, y_end))).convertTo(left_roi, CV_32FC1, 1.0);
+                right(cv::Rect(cv::Point(x_start - d, y_start), cv::Point(x_end - d, y_end))).convertTo(right_roi, CV_32FC1, 1.0);
+
+                float left_average = cv::sum(left_roi)[0] / (left_roi.cols * left_roi.rows);
+                float right_average = cv::sum(right_roi)[0] / (right_roi.cols * right_roi.rows);
+
+                float xcorr = cv::sum((left_roi - left_average).mul(right_roi - right_average))[0];
+                float left_corr = cv::sum((left_roi - left_average).mul(left_roi - left_average))[0];
+                float right_corr = cv::sum((right_roi - right_average).mul(right_roi - right_average))[0];
+                
+                float zncc = xcorr / std::sqrt(left_corr * right_corr);
+#else
+                    double SI = integral_sum_left.at<double>(y_end + 1, x_end + 1) + integral_sum_left.at<double>(y_start, x_start) - integral_sum_left.at<double>(y_start, x_end + 1) - integral_sum_left.at<double>(y_end + 1, x_start);
+                    double SJ = integral_sum_right.at<double>(y_end + 1, x_end - d + 1) + integral_sum_right.at<double>(y_start, x_start - d) - integral_sum_right.at<double>(y_start, x_end - d + 1) - integral_sum_right.at<double>(y_end + 1, x_start - d);
+                    double SII = integral_sqsum_left.at<double>(y_end + 1, x_end + 1) + integral_sqsum_left.at<double>(y_start, x_start) - integral_sqsum_left.at<double>(y_start, x_end + 1) - integral_sqsum_left.at<double>(y_end + 1, x_start);
+                    double SJJ = integral_sqsum_right.at<double>(y_end + 1, x_end - d + 1) + integral_sqsum_right.at<double>(y_start, x_start - d) - integral_sqsum_right.at<double>(y_start, x_end - d + 1) - integral_sqsum_right.at<double>(y_end + 1, x_start - d);
+
+                    int N = (x_end - x_start + 1) * (y_end - y_start + 1);
+                    SI /= N;
+                    SJ /= N;
+                    float left_xcorr = (SII - SI * SI * N) / N / N * 100;
+                    float right_xcorr = (SJJ - SJ * SJ * N) / N / N * 100;
+                    float znssd = FLT_MAX;
+                    if (left_xcorr != 0 && right_xcorr != 0)
+                    {
+                        znssd = 0;
+                        for (int y = y_start; y <= y_end; y++)
+                        {
+                            for (int x = x_start; x <= x_end; x++)
+                            {
+                                znssd += pow(((float)left.at<uchar>(y, x) - SI)/left_xcorr - ((float)right.at<uchar>(y, x - d) - SJ)/right_xcorr, 2);
+                                //std::cout << (int)left.at<uchar>(y, x) << " " << (int)right.at<uchar>(y, x - d) << " " << SI << " " << SJ << " " << left_xcorr << " " << right_xcorr << std::endl;
+                            }
+                        }
+                    }
+#endif
+
+                    cost_volume[d + (x + y * _width) * _max_disparity] = znssd; // 1-zncc make easier for aggregation
+                    //std::cout << x << " " << y << " " << d << " " << znssd << std::endl;
+                }
+            }
+        }
+    }
+}
+
+
 void SpeckleStereoMatcher::ZNCC_calc(const cv::Mat &left, const cv::Mat &right, float *cost_volume)
 {
     // use integral image to accelerate the calculation
@@ -221,6 +298,7 @@ void SpeckleStereoMatcher::match(const cv::Mat &left, const cv::Mat &right, cv::
 #else
     // 1. calculate the cost volume
     ZNCC_calc(left, right, _cost_volumn);
+    //ZNSSD_calc(left, right, _cost_volumn);
     std::cout << "ZNCC calculation done" << std::endl;
 
     // 2. cost agrregation
@@ -229,7 +307,7 @@ void SpeckleStereoMatcher::match(const cv::Mat &left, const cv::Mat &right, cv::
     // 3. wta
     WTA(_cost_volumn, _disparity_int, _width, _height, _max_disparity);
     std::cout << "WTA" << std::endl;
-
+#if 1
     // 4. LR check
     LR_check(_cost_volumn, _disparity_int, _cost_volumn_r, _disparity_int_r, _width, _height, _max_disparity);
     std::cout << "LR_check" << std::endl;
@@ -242,6 +320,16 @@ void SpeckleStereoMatcher::match(const cv::Mat &left, const cv::Mat &right, cv::
     result = cv::Mat::zeros(cv::Size(_width, _height), CV_32FC1);
     median_filter(_disparity_float, (float *)result.data, _width, _height, _kernel_size);
     std::cout << "medianBlur" << std::endl;
+#else
+    result = cv::Mat::zeros(cv::Size(_width, _height), CV_32FC1);
+    for (int y = 0; y < _height; y++)
+    {
+        for( int x = 0; x < _width; x++)
+        {
+            result.at<float>(y,x) = _disparity_int[y*_width + x];
+        }
+    }
+#endif
 #endif
 }
 

@@ -29,6 +29,7 @@ namespace SpeckleStereo
         float *_disparity_float = NULL;
 
         void ZNCC_calc(const cv::Mat &left, const cv::Mat &right, float *cost_volume);
+        void ZNSSD_calc(const cv::Mat &left, const cv::Mat &right, float *cost_volume);
         void ZNCC_calc_tripple_images(const std::vector<cv::Mat> &lefts, const std::vector<cv::Mat> &rights, float *cost_volume);
 
     public:
