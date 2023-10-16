@@ -318,7 +318,7 @@ void SpeckleStereoMatcher::match(const cv::Mat &left, const cv::Mat &right, cv::
 
     // 6. median filter
     result = cv::Mat::zeros(cv::Size(_width, _height), CV_32FC1);
-    median_filter(_disparity_float, (float *)result.data, _width, _height, _kernel_size);
+    median_filter(_disparity_float, (float *)result.data, _width, _height, 5);
     std::cout << "medianBlur" << std::endl;
 #else
     result = cv::Mat::zeros(cv::Size(_width, _height), CV_32FC1);
